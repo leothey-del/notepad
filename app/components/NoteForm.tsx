@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { type NotePayload } from "../lib/notesApi";
@@ -9,7 +9,6 @@ import { getCognitoUserId, getCognitoUsername } from "../lib/cognito/tokens";
 import { useAutoSaveNote } from "../hooks/useAutoSaveNote";
 import SaveStatus from "./SaveStatus";
 import DeleteNoteButton from "./DeleteNoteButton";
-import NoteEditor from "./NoteEditor";
 
 type NoteFormProps = {
   initialSlug?: string;
@@ -22,6 +21,8 @@ function isAuthenticated(): boolean {
 
 export default function NoteForm({ initialSlug }: NoteFormProps) {
   const router = useRouter();
+  const contentRef = useRef<HTMLTextAreaElement | null>(null);
+
   const [authorized, setAuthorized] = useState<boolean>(false);
   const [authChecked, setAuthChecked] = useState<boolean>(false);
   const [isVerifyingNote, setIsVerifyingNote] = useState<boolean>(
@@ -45,6 +46,9 @@ export default function NoteForm({ initialSlug }: NoteFormProps) {
     title,
     content,
   });
+
+  const { ref: contentRegisterRef, ...contentRegisterProps } =
+    register("content");
 
   useEffect(() => {
     const syncAuth = () => {
@@ -110,7 +114,7 @@ export default function NoteForm({ initialSlug }: NoteFormProps) {
 
   return (
     <main className="min-h-screen bg-white text-gray-900">
-      <div className="mx-auto max-w-3xl px-4 pt-1 pb-24">
+      <div className="mx-auto max-w-xl px-4 pt-1">
         <div className="mb-2 flex min-h-7 items-center justify-between gap-2">
           {initialSlug ? (
             <DeleteNoteButton noteId={noteId} slug={initialSlug} />
@@ -133,14 +137,21 @@ export default function NoteForm({ initialSlug }: NoteFormProps) {
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
+                contentRef.current?.focus();
               }
             }}
-            className="w-full rounded-none bg-white px-2.5 py-1.5 font-serif text-xl font-semibold text-gray-900 placeholder:text-gray-500 focus:outline-none"
+            className="block w-full rounded-none bg-white px-2.5 py-1.5 font-serif text-xl font-semibold text-gray-900 placeholder:text-gray-500 focus:outline-none"
           />
 
-          <NoteEditor
-            value={content}
-            onChange={(html) => setValue("content", html, { shouldDirty: true })}
+          <textarea
+            placeholder="Click here and start writing"
+            rows={16}
+            {...contentRegisterProps}
+            ref={(el) => {
+              contentRegisterRef(el);
+              contentRef.current = el;
+            }}
+            className="block min-h-[320px] w-full resize-none rounded-none border-0 bg-transparent px-2.5 py-1.5 font-serif text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none"
           />
         </form>
       </div>
