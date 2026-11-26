@@ -28,11 +28,16 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col bg-white text-gray-900">
         <Providers>
-          <div className="mx-auto w-full max-w-xl px-4 py-8">
-            <Suspense fallback={<div className="mb-6 h-5" />}>
-              <Navbar />
-            </Suspense>
-            {children}
+          <div className="w-full py-8">
+            <div className="mx-auto w-full max-w-xl px-4">
+              <Suspense fallback={<div className="mb-6 h-5" />}>
+                <Navbar />
+              </Suspense>
+            </div>
+
+            <div className="mx-auto w-full max-w-3xl px-4">
+              {children}
+            </div>
           </div>
         </Providers>
       </body>

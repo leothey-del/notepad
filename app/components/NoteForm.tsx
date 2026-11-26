@@ -9,6 +9,7 @@ import { getCognitoUserId, getCognitoUsername } from "../lib/cognito/tokens";
 import { useAutoSaveNote } from "../hooks/useAutoSaveNote";
 import SaveStatus from "./SaveStatus";
 import DeleteNoteButton from "./DeleteNoteButton";
+import NoteEditor from "./NoteEditor";
 
 type NoteFormProps = {
   initialSlug?: string;
@@ -21,10 +22,8 @@ function isAuthenticated(): boolean {
 
 export default function NoteForm({ initialSlug }: NoteFormProps) {
   const router = useRouter();
-  // Start false on both server and initial client render so hydration matches `null`.
   const [authorized, setAuthorized] = useState<boolean>(false);
   const [authChecked, setAuthChecked] = useState<boolean>(false);
-  // Prevents showing an empty editor while verifying that `initialSlug` exists for this user.
   const [isVerifyingNote, setIsVerifyingNote] = useState<boolean>(
     Boolean(initialSlug)
   );
@@ -47,7 +46,6 @@ export default function NoteForm({ initialSlug }: NoteFormProps) {
     content,
   });
 
-  // Sync auth state after mount and whenever `auth-change` fires.
   useEffect(() => {
     const syncAuth = () => {
       const authed = isAuthenticated();
@@ -63,7 +61,6 @@ export default function NoteForm({ initialSlug }: NoteFormProps) {
     return () => window.removeEventListener("auth-change", syncAuth);
   }, [router]);
 
-  // Verify and load existing note on `/[slug]`, or reset for `/new`.
   useEffect(() => {
     if (!authChecked || !authorized) return;
 
@@ -83,7 +80,6 @@ export default function NoteForm({ initialSlug }: NoteFormProps) {
       .then((match) => {
         if (cancelled || !isAuthenticated()) return;
 
-        // Slug does not exist in the current user's notes -> go back to root notes list.
         if (!match) {
           router.replace("/");
           return;
@@ -108,14 +104,13 @@ export default function NoteForm({ initialSlug }: NoteFormProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authChecked, authorized, initialSlug, router, setValue]);
 
-  // Render nothing while checking auth, redirecting unauthenticated users, or verifying slugs.
   if (!authChecked || !authorized || isVerifyingNote) {
     return null;
   }
 
   return (
     <main className="min-h-screen bg-white text-gray-900">
-      <div className="mx-auto max-w-xl px-4 pt-1">
+      <div className="mx-auto max-w-3xl px-4 pt-1 pb-24">
         <div className="mb-2 flex min-h-7 items-center justify-between gap-2">
           {initialSlug ? (
             <DeleteNoteButton noteId={noteId} slug={initialSlug} />
@@ -143,11 +138,9 @@ export default function NoteForm({ initialSlug }: NoteFormProps) {
             className="w-full rounded-none bg-white px-2.5 py-1.5 font-serif text-xl font-semibold text-gray-900 placeholder:text-gray-500 focus:outline-none"
           />
 
-          <textarea
-            placeholder="Click here and start writing"
-            {...register("content")}
-            rows={16}
-            className="w-full resize-none rounded-none border-0 bg-transparent p-0 font-serif text-sm text-gray-800 placeholder:text-gray-500 focus:outline-none"
+          <NoteEditor
+            value={content}
+            onChange={(html) => setValue("content", html, { shouldDirty: true })}
           />
         </form>
       </div>
