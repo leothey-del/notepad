@@ -1,20 +1,48 @@
-// Calls `listNotes` from `./notesApi` (which lives in `lib/`).
 import { listNotes, type SavedNote } from "./notesApi";
 
-// Converts a note title or URL slug into a clean dash-separated string (e.g. "My Note" -> "my-note").
-export function toSlug(value: string): string {
-  return (value.trim() || "untitled")
+// Short prefix helper for symbol-only titles (e.g. "2de07f8b-..." -> "note-2de07f8b")
+function shortNoteSlug(id?: string): string {
+  if (!id) return "untitled";
+  const cleanId = id.replace(/-/g, "").slice(0, 8);
+  return cleanId ? `note-${cleanId}` : "untitled";
+}
+
+export function toSlug(value: string, fallbackId?: string): string {
+  const slug = value
+    .trim()
     .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
+
+  if (!slug) {
+    return shortNoteSlug(fallbackId);
+  }
+
+  return slug;
 }
 
-// Finds an existing saved note that matches `slug`.
-// Calls `listNotes()` from `lib/notesApi.ts` to fetch all notes, then matches using `toSlug`.
-export async function findNoteBySlug(slug: string): Promise<SavedNote | undefined> {
-  const normalizedSlug = toSlug(slug);
-  // CALLS LIB: `listNotes()` from `app/lib/notesApi.ts`
+export async function findNoteBySlug(
+  slug: string
+): Promise<SavedNote | undefined> {
+  let decodedSlug = slug;
+  try {
+    decodedSlug = decodeURIComponent(slug);
+  } catch {
+    decodedSlug = slug;
+  }
+
+  const normalizedSlug = toSlug(decodedSlug);
   const notes = await listNotes();
-  return notes.find((note) => toSlug(note.title) === normalizedSlug);
+
+  return notes.find((note) => {
+    const resolvedId = note.id ?? (note as { noteId?: string }).noteId;
+    return (
+      toSlug(note.title, resolvedId) === normalizedSlug ||
+      toSlug(note.title, resolvedId) === decodedSlug ||
+      shortNoteSlug(resolvedId) === decodedSlug ||
+      resolvedId === decodedSlug
+    );
+  });
 }

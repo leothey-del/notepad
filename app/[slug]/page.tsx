@@ -1,25 +1,19 @@
+// app/[slug]/page.tsx
 import { Suspense } from "react";
 import NoteForm from "../components/NoteForm";
 
-async function SlugNoteLoader({
-  params,
-}: {
+type NoteSlugPageProps = {
   params: Promise<{ slug: string }>;
-}) {
-  const { slug } = await params;
-  const decoded = decodeURIComponent(slug);
-  const initialSlug = decoded.replace(/-/g, " ");
+};
 
-  return <NoteForm initialSlug={initialSlug} />;
+async function SlugNoteLoader({ params }: NoteSlugPageProps) {
+  const { slug } = await params;
+  return <NoteForm initialSlug={slug} />;
 }
 
-export default function NoteSlugPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}) {
+export default function NoteSlugPage({ params }: NoteSlugPageProps) {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
+    <Suspense fallback={null}>
       <SlugNoteLoader params={params} />
     </Suspense>
   );

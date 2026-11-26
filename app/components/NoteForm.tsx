@@ -1,34 +1,33 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-// CALLS LIB: `saveNote` and `NotePayload` come from `app/lib/notesApi.ts`.
-import { saveNote, type NotePayload } from "../lib/notesApi";
-// CALLS LIB: `findNoteBySlug` and `toSlug` come from `app/lib/noteHelpers.ts`.
-import { findNoteBySlug, toSlug } from "../lib/noteHelper";
+import { type NotePayload } from "../lib/notesApi";
+import { findNoteBySlug } from "../lib/noteHelper";
+import { getCognitoUserId, getCognitoUsername } from "../lib/cognito/tokens";
+import { useAutoSaveNote } from "../hooks/useAutoSaveNote";
+import SaveStatus from "./SaveStatus";
+import DeleteNoteButton from "./DeleteNoteButton";
 
 type NoteFormProps = {
   initialSlug?: string;
 };
 
+function isAuthenticated(): boolean {
+  if (typeof window === "undefined") return false;
+  return Boolean(getCognitoUserId() || getCognitoUsername());
+}
+
 export default function NoteForm({ initialSlug }: NoteFormProps) {
-  const queryClient = useQueryClient();
-
-   // Tracks whether the user has typed into the form during this session so status messages
-// only appear after typing starts (never initially on a blank/loaded form).
-const [hasTyped, setHasTyped] = useState(false);
-
-  // Stores the existing note's ID so saving updates that note instead of creating a duplicate.
+  const router = useRouter();
+  const [authorized, setAuthorized] = useState<boolean>(() => isAuthenticated());
+  // Prevents showing an empty editor while verifying that `initialSlug` exists for this user.
+  const [isVerifyingNote, setIsVerifyingNote] = useState<boolean>(
+    Boolean(initialSlug)
+  );
   const [noteId, setNoteId] = useState<string | undefined>(undefined);
 
-  // Tracks the last saved title & content to avoid re-saving unchanged values.
-  const lastSavedRef = useRef<{ title: string; content: string }>({
-    title: "",
-    content: "",
-  });
-
-  // React Hook Form setup for managing `title` and `content` inputs.
   const { register, watch, setValue } = useForm<NotePayload>({
     defaultValues: {
       title: "",
@@ -36,123 +35,119 @@ const [hasTyped, setHasTyped] = useState(false);
     },
   });
 
- 
-  // When opening an existing note URL (like `/sample`), pre-fill the title and load
-  // the matching note's `id`, `title`, and `content`.
-  // When opening a new note (`/new` where `initialSlug` is undefined), reset all fields.
-  useEffect(() => {
-  if (!initialSlug) {
-    // CALLS LIB: none (resets local form state and save status for a brand-new note).
-    setNoteId(undefined);
-    setValue("title", "");
-    setValue("content", "");
-    lastSavedRef.current = { title: "", content: "" };
-    setHasTyped(false);
-    mutation.reset();
-    return;
-  }
-
-  setValue("title", initialSlug);
-  setHasTyped(false);
-  mutation.reset();
-  let cancelled = false;
-
-  // CALLS LIB: `findNoteBySlug` from `app/lib/noteHelper.ts` (which calls `listNotes` in `app/lib/notesApi.ts`).
-  findNoteBySlug(initialSlug)
-    .then((match) => {
-      if (cancelled || !match) return;
-      setNoteId(match.id);
-      setValue("title", match.title);
-      setValue("content", match.content);
-      lastSavedRef.current = {
-        title: match.title,
-        content: match.content,
-      };
-    })
-    .catch((err) => {
-      console.error("Failed to load existing note:", err);
-    });
-
-  return () => {
-    cancelled = true;
-  };
-}, [initialSlug, setValue]);
-  // Watch live input values so auto-save triggers when the user types.
   const title = watch("title");
   const content = watch("content");
 
-  // Mutation that sends the note to the backend API and updates the URL slug + notes cache.
-  const mutation = useMutation({
-    // CALLS LIB: `saveNote` from `app/lib/notesApi.ts` sends the POST request to Lambda.
-    mutationFn: saveNote,
-    onSuccess: (savedNote) => {
-      setNoteId(savedNote.id);
-      lastSavedRef.current = {
-        title: savedNote.title,
-        content: savedNote.content,
-      };
-
-      // CALLS LIB: `toSlug` from `app/lib/noteHelpers.ts` formats the title with dashes for the URL.
-      const slug = encodeURIComponent(toSlug(savedNote.title) || "untitled");
-      window.history.replaceState(null, "", `/${slug}`);
-
-      // Tells TanStack Query to refresh the `["notes"]` list so changes appear on the home page.
-      queryClient.invalidateQueries({ queryKey: ["notes"] });
-    },
+  const { hasTyped, saveStatus, syncSavedSnapshot } = useAutoSaveNote({
+    noteId,
+    setNoteId,
+    title,
+    content,
   });
 
-  // Debounced auto-save: waits 1 second after the user stops typing before saving.
+  // Sync auth state on mount and whenever `auth-change` fires.
   useEffect(() => {
-  if (!title && !content) return;
+    const syncAuth = () => {
+      const authed = isAuthenticated();
+      setAuthorized(authed);
+      if (!authed) {
+        router.replace("/login");
+      }
+    };
 
-  if (
-    title === lastSavedRef.current.title &&
-    content === lastSavedRef.current.content
-  ) {
-    return;
+    syncAuth();
+    window.addEventListener("auth-change", syncAuth);
+    return () => window.removeEventListener("auth-change", syncAuth);
+  }, [router]);
+
+  // Verify and load existing note on `/[slug]`, or reset for `/new`.
+  useEffect(() => {
+    if (!authorized) return;
+
+    if (!initialSlug) {
+      setIsVerifyingNote(false);
+      setNoteId(undefined);
+      setValue("title", "");
+      setValue("content", "");
+      syncSavedSnapshot("", "");
+      return;
+    }
+
+    let cancelled = false;
+    setIsVerifyingNote(true);
+
+    findNoteBySlug(initialSlug)
+      .then((match) => {
+        if (cancelled || !isAuthenticated()) return;
+
+        // Slug does not exist in the current user's notes -> go back to root notes list.
+        if (!match) {
+          router.replace("/");
+          return;
+        }
+
+        setNoteId(match.id);
+        setValue("title", match.title);
+        setValue("content", match.content);
+        syncSavedSnapshot(match.title, match.content);
+        setIsVerifyingNote(false);
+      })
+      .catch((err) => {
+        console.error("Failed to verify note slug:", err);
+        if (!cancelled) {
+          router.replace("/");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authorized, initialSlug, router, setValue]);
+
+  // Render nothing while redirecting unauthenticated users or verifying unknown slugs.
+  if (!authorized || isVerifyingNote) {
+    return null;
   }
 
-  setHasTyped(true);
-
-  const timer = setTimeout(() => {
-    // CALLS LIB: triggers `mutation.mutate` -> `saveNote` in `app/lib/notesApi.ts`.
-    mutation.mutate({
-      id: noteId,
-      title,
-      content,
-    });
-  }, 400);
-
-  return () => clearTimeout(timer);
-}, [title, content, noteId, mutation]);
-
   return (
-    <form className="flex flex-col">
-      {/* Shows the save status fixed at the top-right edge of the viewport */}
-      {hasTyped && (
-        <p
-          role="status"
-          aria-live="polite"
-          className="fixed right-4 top-4 z-50 text-sm text-gray-500"
-        >
-          {mutation.isPending && "Saving..."}
-          {mutation.isSuccess && "Saved!"}
-          {mutation.isError && "Failed to save."}
-        </p>
-      )}
-      {/* Title input registered with React Hook Form */}
-      <div>
-        <input {...register("title")} placeholder="Note title" />
-      </div>
+    <main className="min-h-screen bg-white text-gray-900">
+      <div className="mx-auto max-w-xl px-4 pt-1">
+        <div className="mb-2 flex min-h-7 items-center justify-between gap-2">
+          {initialSlug ? (
+            <DeleteNoteButton noteId={noteId} slug={initialSlug} />
+          ) : (
+            <span />
+          )}
+          <SaveStatus visible={hasTyped} status={saveStatus} />
+        </div>
 
-      {/* Content textarea registered with React Hook Form */}
-      <div>
-        <textarea
-          {...register("content")}
-          placeholder="Write your note..."
-          rows={10}
-        />
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+          }}
+          className="space-y-1"
+        >
+          <input
+            type="text"
+            placeholder="Title"
+            {...register("title")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+              }
+            }}
+            className="w-full rounded-none bg-white px-2.5 py-1.5 font-serif text-xl font-semibold text-gray-900 placeholder:text-gray-500 focus:outline-none"
+          />
+
+          <textarea
+            placeholder="Click here and start writing"
+            {...register("content")}
+            rows={16}
+            className="w-full resize-none rounded-none border-0 bg-transparent p-0 font-serif text-sm text-gray-800 placeholder:text-gray-500 focus:outline-none"
+          />
+        </form>
       </div>
-    </form>
+    </main>
   );
 }
