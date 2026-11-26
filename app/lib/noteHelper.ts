@@ -1,4 +1,7 @@
 import { listNotes, type SavedNote } from "./notesApi";
+import { getCognitoUserId, getCognitoUsername } from "./cognito/tokens";
+
+const RESERVED_SLUGS = new Set(["new", "login", "notes", "api"]);
 
 // Short prefix helper for symbol-only titles (e.g. "2de07f8b-..." -> "note-2de07f8b")
 function shortNoteSlug(id?: string): string {
@@ -16,7 +19,7 @@ export function toSlug(value: string, fallbackId?: string): string {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
 
-  if (!slug) {
+  if (!slug || RESERVED_SLUGS.has(slug)) {
     return shortNoteSlug(fallbackId);
   }
 
@@ -26,6 +29,14 @@ export function toSlug(value: string, fallbackId?: string): string {
 export async function findNoteBySlug(
   slug: string
 ): Promise<SavedNote | undefined> {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
+  if (!getCognitoUserId() && !getCognitoUsername()) {
+    return undefined;
+  }
+
   let decodedSlug = slug;
   try {
     decodedSlug = decodeURIComponent(slug);

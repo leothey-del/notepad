@@ -21,7 +21,9 @@ function isAuthenticated(): boolean {
 
 export default function NoteForm({ initialSlug }: NoteFormProps) {
   const router = useRouter();
-  const [authorized, setAuthorized] = useState<boolean>(() => isAuthenticated());
+  // Start false on both server and initial client render so hydration matches `null`.
+  const [authorized, setAuthorized] = useState<boolean>(false);
+  const [authChecked, setAuthChecked] = useState<boolean>(false);
   // Prevents showing an empty editor while verifying that `initialSlug` exists for this user.
   const [isVerifyingNote, setIsVerifyingNote] = useState<boolean>(
     Boolean(initialSlug)
@@ -45,11 +47,12 @@ export default function NoteForm({ initialSlug }: NoteFormProps) {
     content,
   });
 
-  // Sync auth state on mount and whenever `auth-change` fires.
+  // Sync auth state after mount and whenever `auth-change` fires.
   useEffect(() => {
     const syncAuth = () => {
       const authed = isAuthenticated();
       setAuthorized(authed);
+      setAuthChecked(true);
       if (!authed) {
         router.replace("/login");
       }
@@ -62,7 +65,7 @@ export default function NoteForm({ initialSlug }: NoteFormProps) {
 
   // Verify and load existing note on `/[slug]`, or reset for `/new`.
   useEffect(() => {
-    if (!authorized) return;
+    if (!authChecked || !authorized) return;
 
     if (!initialSlug) {
       setIsVerifyingNote(false);
@@ -103,10 +106,10 @@ export default function NoteForm({ initialSlug }: NoteFormProps) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authorized, initialSlug, router, setValue]);
+  }, [authChecked, authorized, initialSlug, router, setValue]);
 
-  // Render nothing while redirecting unauthenticated users or verifying unknown slugs.
-  if (!authorized || isVerifyingNote) {
+  // Render nothing while checking auth, redirecting unauthenticated users, or verifying slugs.
+  if (!authChecked || !authorized || isVerifyingNote) {
     return null;
   }
 
